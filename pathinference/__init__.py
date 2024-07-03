@@ -51,9 +51,11 @@ class PathInference:
         self.likenoisescale = likenoisescale
         self.dims = int(observations.shape[1]/2)
 
-        self.K = kernel
+        self.kernel = kernel
         if Nind is None:
-            Nind = 1+int(3*np.max(obstimes))
+            Nind = 1+int(3*(np.max(self.obstimes)-np.min(self.obstimes))/kernel.ls)
+            #np.max(self.obstimes)-np.min(self.obstimes))
+            #Nind = 1+int(3*np.max(obstimes))
             print("Using %d inducing points." % Nind)
         self.Nind = Nind
         
@@ -70,9 +72,9 @@ class PathInference:
 
     def compute_matrices(self,X,Z):
         """TODO: Rename as A and B not A and Z"""
-        Kzz = self.K(Z,Z)+np.eye(Z.shape[0],dtype=np.float32)*self.jitter
-        Kxx = self.K(X,X)+np.eye(X.shape[0],dtype=np.float32)*self.jitter
-        Kxz = self.K(X,Z)
+        Kzz = self.kernel.K(Z,Z)+np.eye(Z.shape[0],dtype=np.float32)*self.jitter
+        Kxx = self.kernel.K(X,X)+np.eye(X.shape[0],dtype=np.float32)*self.jitter
+        Kxz = self.kernel.K(X,Z)
         Kzx = tf.transpose(Kxz)
         KzzinvKzx = tf.linalg.solve(Kzz,Kzx)
         KxzKzzinv = tf.transpose(KzzinvKzx)
@@ -80,33 +82,50 @@ class PathInference:
         return Kzz,Kxx,Kxz,Kzx,KzzinvKzx,KxzKzzinv,KxzKzzinvKzx
         
     
-    def buildinputmatrix(self,size,min_time=None,max_time=None):
+    def buildinputmatrix(self,times,min_time=None,max_time=None):
         """
+        times can either be the number of times or a list of times.
         Constructs a matrix of [dims*size,2], where the first column is time and second is axis index.
         - min_time and max_time specify the linspace range of times (default to a time just before and
           after the obstimes).
         - size = number of points        
         Returns a [self.dims*size,2] matrix
         """
-        buffer_time = 0.1*(np.max(self.obstimes)-np.min(self.obstimes)) #10% of total time on either side
-        if max_time is None:
-            max_time = np.max(self.obstimes)+buffer_time
-        if min_time is None:
-            min_time = np.min(self.obstimes)-buffer_time
-        
-        A = []
-        for ax in range(self.dims):
-            Aax = np.c_[np.linspace(min_time,max_time,size),np.full(size,ax)]
-            A.extend(Aax)
-        A = np.array(A)
-        A = tf.Variable(A,dtype=tf.float32)    
-        return A
+        if isinstance(times,int):
+            size = times
+            
+            buffer_time = 0.1*(np.max(self.obstimes)-np.min(self.obstimes)) #10% of total time on either side
+            if max_time is None:
+                max_time = np.max(self.obstimes)+buffer_time
+            if min_time is None:
+                min_time = np.min(self.obstimes)-buffer_time
+            
+            A = []
+            for ax in range(self.dims):
+                Aax = np.c_[np.linspace(min_time,max_time,size),np.full(size,ax)]
+                A.extend(Aax)
+            A = np.array(A)
+            A = tf.Variable(A,dtype=tf.float32)    
+            return A
+        else:
+            times = np.array(times)
+            assert len(times.shape)==1, "Expecting a 1d list of times, or the number of time points."
+            A = []
+            for ax in range(self.dims):
+                Aax = np.c_[times,np.full(len(times),ax)]
+                A.extend(Aax)
+            A = np.array(A)
+            A = tf.Variable(A,dtype=tf.float32)
+            return A
     
     def getcov(self,scale):
         return tf.linalg.band_part(scale, -1, 0) @ tf.transpose(tf.linalg.band_part(scale, -1, 0))
     
     
     def getpredictions(self,Xs):
+        """
+        Returns a tensor (matrix) of means, and a tensor of covariances.
+        """
         Kzz,Kxx,Kxz,Kzx,KzzinvKzx,KxzKzzinv,KxzKzzinvKzx = self.compute_matrices(Xs,self.Z)
         m = self.Z.shape[0]
         qf_mu = (KxzKzzinv @ self.mu)[:,0]
@@ -137,7 +156,7 @@ class PathInference:
 
         #parameters for p(u), the prior.
         mu_u = tf.zeros([1,m])
-        cov_u = tf.Variable(self.K(self.Z,self.Z))
+        cov_u = tf.Variable(self.kernel.K(self.Z,self.Z))
         
         pu = tfd.MultivariateNormalFullCovariance(mu_u,cov_u+np.eye(cov_u.shape[0])*self.jitter)
 
