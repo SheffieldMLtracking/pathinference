@@ -192,8 +192,8 @@ class PathInference:
                 #TODO This only works for 3d.
                 d = tf.norm(cross(y[:,3:],samps-y[:,:3]),axis=2)/tf.norm(y[:,3:],axis=1)
                 logprobs = tfd.Normal(0,self.likenoisescale).log_prob(d)
-                ell = tf.reduce_mean(tf.reduce_sum(logprobs,1))
-                ##ell = tfp.stats.percentile(tf.reduce_sum(logprobs,1),50,interpolation='midpoint')
+                ##ell = tf.reduce_mean(tf.reduce_sum(logprobs,1))
+                ell = tfp.stats.percentile(tf.reduce_sum(logprobs,1),50,interpolation='midpoint')
 
                 #we compute the ELBO = - (expected log likelihood of the data - KL[prior, variational_distribution]).
                 elbo_loss = -( ell - tfd.kl_divergence(qu,pu) )
