@@ -8,6 +8,7 @@ See [how to install tensorflow](https://www.tensorflow.org/install/pip) and [ten
 ```
 python3 -m pip install 'tensorflow[and-cuda]'
 pip install --upgrade tensorflow-probability
+pip install tf-keras
 ```
 
 Then install this package:
